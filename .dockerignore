@@ -1,0 +1,18 @@
+.git
+.gitignore
+.dart_tool
+.packages
+.pub-cache
+build
+**/doc/api
+*.iml
+.idea
+.vscode
+*.md
+Dockerfile*
+docker-compose*.yml
+.env
+.env.*
+
+# Builder copies only pubspec + lib + web + .metadata; nginx stays out of builder context weight.
+# (Final stage still COPYs docker/nginx from context — do not ignore docker/)
