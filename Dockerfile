@@ -21,7 +21,8 @@ COPY web/ ./web/
 RUN dart run sqflite_common_ffi_web:setup
 
 ARG OLLAMA_MODEL=llama3.2
-RUN flutter build web --release --dart-define=OLLAMA_MODEL=${OLLAMA_MODEL}
+# Без этого Flutter по умолчанию грузит CanvasKit с www.gstatic.com — при блокировке/обрыве сети приложение не стартует.
+RUN flutter build web --release --no-web-resources-cdn --dart-define=OLLAMA_MODEL=${OLLAMA_MODEL}
 
 FROM nginx:1.27-alpine
 
