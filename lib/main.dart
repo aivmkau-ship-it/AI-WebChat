@@ -14,27 +14,63 @@ import 'state/app_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  configureSqlitePlatform();
-  final session = await SessionStore.open();
-  final db = await AppDb.open();
-  final auth = DbAuthRepository(db);
-  final ollama = OllamaClient(baseUrl: resolveOllamaBaseUrl());
-  final frida = FridaService(ollama);
 
-  final appState = AppState(
-    auth: auth,
-    session: session,
-    db: db,
-    frida: frida,
-  );
-  await appState.hydrateAfterOpen();
+  try {
+    configureSqlitePlatform();
+    final session = await SessionStore.open();
+    final db = await AppDb.open();
+    final auth = DbAuthRepository(db);
+    final ollama = OllamaClient(baseUrl: resolveOllamaBaseUrl());
+    final frida = FridaService(ollama);
 
-  runApp(
-    ChangeNotifierProvider.value(
-      value: appState,
-      child: const AiWebChatApp(),
-    ),
-  );
+    final appState = AppState(
+      auth: auth,
+      session: session,
+      db: db,
+      frida: frida,
+    );
+    await appState.hydrateAfterOpen();
+
+    runApp(
+      ChangeNotifierProvider.value(
+        value: appState,
+        child: const AiWebChatApp(),
+      ),
+    );
+  } catch (e, st) {
+    debugPrint('Startup failed: $e\n$st');
+    runApp(_StartupErrorApp(message: '$e'));
+  }
+}
+
+/// Понятный экран вместо белого при сбое инициализации (часто веб: нет sqflite_sw.js / sqlite3.wasm).
+class _StartupErrorApp extends StatelessWidget {
+  const _StartupErrorApp({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'AI WebChat',
+      home: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: SelectableText(
+              'Не удалось запустить приложение.\n\n'
+              'Детали: $message\n\n'
+              'Если в консоли браузера ошибка про sqflite_sw.js — для веб-сборки нужны файлы '
+              'worker и WASM в каталоге web/. Выполните в корне проекта:\n'
+              '  dart run sqflite_common_ffi_web:setup\n'
+              'затем снова соберите web. В Docker это уже делает образ (см. Dockerfile).',
+              style: const TextStyle(height: 1.4),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class AiWebChatApp extends StatelessWidget {

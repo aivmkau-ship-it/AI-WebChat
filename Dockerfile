@@ -17,6 +17,9 @@ COPY .metadata ./
 COPY lib/ ./lib/
 COPY web/ ./web/
 
+# Веб-реализация sqflite грузит shared worker и wasm из корня сайта; без этого — 404 и белый экран.
+RUN dart run sqflite_common_ffi_web:setup
+
 ARG OLLAMA_MODEL=llama3.2
 RUN flutter build web --release --dart-define=OLLAMA_MODEL=${OLLAMA_MODEL}
 
