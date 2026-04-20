@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/chat.dart';
-import '../services/chat_repository.dart';
+import '../models/user_profile.dart';
 import '../state/app_state.dart';
 
 class ChatHomeScreen extends StatelessWidget {
@@ -39,6 +39,77 @@ class _HistoryPanel extends StatelessWidget {
 
   final void Function(String id)? onThreadPicked;
 
+  Future<void> _createGroup(BuildContext context) async {
+    final titleCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Новая группа'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: titleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Название',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) =>
+                      (v ?? '').trim().isEmpty ? 'Укажите название' : null,
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: descCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Описание (необязательно)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.pop(ctx, true);
+                }
+              },
+              child: const Text('Создать'),
+            ),
+          ],
+        );
+      },
+    );
+    try {
+      if (ok == true && context.mounted) {
+        final app = context.read<AppState>();
+        final err = await app.createGroup(
+          titleRaw: titleCtrl.text,
+          descriptionRaw: descCtrl.text,
+        );
+        if (!context.mounted) return;
+        if (err != null) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+        }
+      }
+    } finally {
+      titleCtrl.dispose();
+      descCtrl.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -51,9 +122,14 @@ class _HistoryPanel extends StatelessWidget {
           elevation: 0,
           color: Theme.of(context).colorScheme.surface,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            padding: const EdgeInsets.fromLTRB(4, 12, 8, 8),
             child: Row(
               children: [
+                IconButton(
+                  tooltip: 'Новая группа',
+                  onPressed: app.isBusy ? null : () => _createGroup(context),
+                  icon: const Icon(Icons.group_add_outlined),
+                ),
                 Text(
                   'Чаты',
                   style: Theme.of(context).textTheme.titleLarge,
@@ -78,7 +154,7 @@ class _HistoryPanel extends StatelessWidget {
           child: SearchBar(
             hintText: 'Поиск по чатам',
             leading: const Icon(Icons.search),
-            onChanged: (_) {},
+            onChanged: app.setThreadFilter,
           ),
         ),
         Expanded(
@@ -87,9 +163,10 @@ class _HistoryPanel extends StatelessWidget {
             itemBuilder: (context, index) {
               final thread = app.threads[index];
               final selected = thread.id == app.selectedThreadId;
+              final isAi = thread.id == ChatIds.aiConsultant;
               return _ThreadTile(
                 thread: thread,
-                isAiConsultant: thread.id == ChatRepository.aiConsultantThreadId,
+                isAiConsultant: isAi,
                 selected: selected,
                 onTap: () {
                   app.selectThread(thread.id);
@@ -132,9 +209,18 @@ class _ThreadTile extends StatelessWidget {
                 size: 22,
               ),
             )
-          : CircleAvatar(
-              child: Text(thread.peerNickname.characters.first.toUpperCase()),
-            ),
+          : thread.isGroup
+              ? CircleAvatar(
+                  backgroundColor: scheme.secondaryContainer,
+                  child: Icon(
+                    Icons.groups_outlined,
+                    color: scheme.onSecondaryContainer,
+                    size: 22,
+                  ),
+                )
+              : CircleAvatar(
+                  child: Text(thread.peerNickname.characters.first.toUpperCase()),
+                ),
       title: Text(thread.peerNickname, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         thread.lastSnippet,
@@ -155,6 +241,133 @@ class _ThreadTile extends StatelessWidget {
       'июл', 'авг', 'сен', 'окт', 'ноя', 'дек',
     ];
     return '${d.day.toString().padLeft(2, '0')} ${months[d.month - 1]}';
+  }
+}
+
+class _AddMemberDialog extends StatefulWidget {
+  const _AddMemberDialog();
+
+  @override
+  State<_AddMemberDialog> createState() => _AddMemberDialogState();
+}
+
+class _AddMemberDialogState extends State<_AddMemberDialog> {
+  final _phone = TextEditingController();
+  List<UserProfile> _results = [];
+  bool _searching = false;
+  bool _searched = false;
+
+  @override
+  void dispose() {
+    _phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search() async {
+    setState(() {
+      _searching = true;
+      _searched = true;
+    });
+    final app = context.read<AppState>();
+    final list = await app.searchUsersByPhoneQuery(_phone.text);
+    if (!mounted) return;
+    setState(() {
+      _results = list;
+      _searching = false;
+    });
+  }
+
+  Future<void> _addByPhone(String phone) async {
+    final app = context.read<AppState>();
+    final err = await app.addMemberToSelectedGroupByPhone(phone);
+    if (!mounted) return;
+    if (err == null) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Участник добавлен')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Поиск по номеру телефона'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _phone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      hintText: 'Номер или часть номера',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    onSubmitted: (_) => _search(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  onPressed: _searching ? null : _search,
+                  icon: _searching
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.search),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Минимум 3 цифры для поиска. Нажмите на пользователя, чтобы добавить в группу.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 220,
+              child: !_searched
+                  ? const Center(
+                      child: Text('Введите цифры номера и нажмите поиск'),
+                    )
+                  : _results.isEmpty
+                      ? const Center(child: Text('Никого не найдено'))
+                      : ListView.builder(
+                      itemCount: _results.length,
+                      itemBuilder: (context, i) {
+                        final p = _results[i];
+                        return ListTile(
+                          dense: true,
+                          title: Text(p.nickname),
+                          subtitle: Text(p.phone),
+                          onTap: () => _addByPhone(p.phone),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Закрыть'),
+        ),
+      ],
+    );
   }
 }
 
@@ -194,7 +407,7 @@ class _ChatPaneState extends State<_ChatPane> {
 
     final messages = app.selectedMessages;
     final scheme = Theme.of(context).colorScheme;
-    final aiOnly = thread.id == ChatRepository.aiConsultantThreadId;
+    final aiOnly = ChatIds.isAiConsultant(thread.id);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -207,15 +420,29 @@ class _ChatPaneState extends State<_ChatPane> {
             subtitle: Text(
               aiOnly
                   ? 'Только диалог с FRIDA (Ollama). Каждое сообщение уходит консультанту.'
-                  : 'Последнее обновление: ${_ThreadTile._shortDate(thread.updatedAt)}',
+                  : thread.isGroup
+                      ? 'Группа — сообщения видят все участники.'
+                      : 'Последнее обновление: ${_ThreadTile._shortDate(thread.updatedAt)}',
             ),
+            trailing: thread.isGroup
+                ? IconButton(
+                    tooltip: 'Добавить участника по номеру',
+                    onPressed: () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (ctx) => const _AddMemberDialog(),
+                      );
+                    },
+                    icon: const Icon(Icons.person_add_outlined),
+                  )
+                : null,
           ),
         ),
         if (aiOnly)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: Text(
-              'Системный чат: обычные беседы с людьми — в других диалогах слева; там FRIDA по @FRIDA / @AI, если включён переключатель.',
+              'Системный чат: обычные беседы с людьми — в группах слева; там FRIDA по @FRIDA / @AI, если включён переключатель.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
@@ -267,7 +494,8 @@ class _ChatPaneState extends State<_ChatPane> {
                             : 'Написать сообщение…',
                     border: const OutlineInputBorder(),
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   ),
                   minLines: 1,
                   maxLines: 4,
@@ -340,6 +568,19 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          if (!message.isMine &&
+              message.authorNickname != null &&
+              message.senderLabel == null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, right: 4, bottom: 4),
+              child: Text(
+                message.authorNickname!,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           Container(

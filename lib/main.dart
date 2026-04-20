@@ -1,32 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'data/app_db.dart';
+import 'screens/auth_screen.dart';
 import 'screens/chat_home_screen.dart';
-import 'screens/registration_screen.dart';
-import 'services/chat_repository.dart';
+import 'services/db_auth_repository.dart';
 import 'services/frida_service.dart';
-import 'services/memory_auth_repository.dart';
 import 'config/ollama_base_resolver.dart';
 import 'services/ollama_client.dart';
 import 'services/session_store.dart';
+import 'sqlite_config.dart';
 import 'state/app_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  configureSqlitePlatform();
   final session = await SessionStore.open();
-  final auth = InMemoryAuthRepository(session.preferences);
-  final chats = ChatRepository();
+  final db = await AppDb.open();
+  final auth = DbAuthRepository(db);
   final ollama = OllamaClient(baseUrl: resolveOllamaBaseUrl());
   final frida = FridaService(ollama);
 
+  final appState = AppState(
+    auth: auth,
+    session: session,
+    db: db,
+    frida: frida,
+  );
+  await appState.hydrateAfterOpen();
+
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState(
-        auth: auth,
-        session: session,
-        chats: chats,
-        frida: frida,
-      ),
+    ChangeNotifierProvider.value(
+      value: appState,
       child: const AiWebChatApp(),
     ),
   );
@@ -58,7 +63,7 @@ class _RootSwitcher extends StatelessWidget {
         if (app.isSignedIn) {
           return const Scaffold(body: SafeArea(child: ChatHomeScreen()));
         }
-        return const Scaffold(body: SafeArea(child: RegistrationScreen()));
+        return const Scaffold(body: SafeArea(child: AuthScreen()));
       },
     );
   }

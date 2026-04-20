@@ -5,6 +5,10 @@ enum RegistrationIssue {
   nicknameTaken,
 }
 
+enum LoginIssue {
+  userNotFound,
+}
+
 class RegistrationResult {
   const RegistrationResult.success(this.profile) : issue = null;
   const RegistrationResult.failure(this.issue) : profile = null;
@@ -15,11 +19,21 @@ class RegistrationResult {
   bool get isSuccess => profile != null;
 }
 
-/// Replace [InMemoryAuthRepository] with an HTTP-backed implementation
-/// when the backend is ready.
+class LoginResult {
+  const LoginResult.success(this.profile) : issue = null;
+  const LoginResult.failure(this.issue) : profile = null;
+
+  final UserProfile? profile;
+  final LoginIssue? issue;
+
+  bool get isSuccess => profile != null;
+}
+
 abstract class AuthRepository {
   Future<RegistrationResult> register({
     required String normalizedPhone,
     required String nickname,
   });
+
+  Future<LoginResult> login({required String normalizedPhone});
 }
