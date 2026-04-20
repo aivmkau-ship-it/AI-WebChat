@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -14,8 +15,13 @@ class AppDb {
   static const aiChatId = ChatIds.aiConsultant;
 
   static Future<AppDb> open() async {
+    // На вебе sqflite_common_ffi_web не задаёт каталог: getDatabasesPath() даёт null.
+    // Достаточно имени файла — хранилище выбирает сама фабрика (IndexedDB и т.д.).
+    final dbPath = kIsWeb
+        ? _dbName
+        : p.join(await getDatabasesPath(), _dbName);
     final db = await openDatabase(
-      p.join(await getDatabasesPath(), _dbName),
+      dbPath,
       version: 1,
       onCreate: _onCreate,
       onOpen: (db) async {
